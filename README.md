@@ -88,7 +88,8 @@ return search per source.
 GMP has no direct Fukuoka flights today: after 5 empty answers in a row that direction is
 skipped and remembered for 7 days, so it costs ~10 requests a week. Daily totals are roughly
 **~830 requests to Google and ~590 to Naver**, sequential, 4–8 s apart, with a hard cap
-of 400 per source per run. Every run logs its request count, and `status` shows it.
+of 400 per source per run. Every run logs its request count, and `status` shows it. (A Google bundle return lookup is
+counted as one request, but the library may make up to two extra fallback calls inside it.)
 
 Errors are retried with exponential backoff (3 times). HTTP 403/429 stops that source for the
 rest of the run; the other source keeps going.
