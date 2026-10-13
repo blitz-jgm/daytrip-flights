@@ -204,11 +204,13 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
   </section>
 
   <section class="card">
-    <h2>Price trend for one date</h2>
-    <div class="row"><label for="pick-{{ loop.index0 }}">Travel date</label>
-      <select id="pick-{{ loop.index0 }}"></select>
-      <span class="muted">each point is one search run</span></div>
+    <h2>Cheapest price per search run</h2>
+    {% if r.cheapest %}
+    <p class="muted">Each point is the cheapest date anywhere in the {{ r.days_ahead }}-day window, as found by one run.
+      Now <b>₩{{ r.cheapest.latest|krw }}</b> · lowest seen ₩{{ r.cheapest.low|krw }}
+      · typical (median, dashed) ₩{{ r.cheapest.median|krw }} · {{ r.cheapest.runs|length }} runs</p>
     <div class="chart" id="trend-{{ loop.index0 }}"></div>
+    {% else %}<p class="muted">No finished runs yet.</p>{% endif %}
   </section>
   {% endif %}
   {% endfor %}
@@ -315,38 +317,44 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
         "<div>" + v.date + " (" + v.weekday + ")</div><b>" + krw(v.total) + "</b> · " +
         (v.kind === "bundle" ? "round trip" : "2 × one-way") + "<div>" + legsHtml(v) + "</div>"));
       hit.addEventListener("mouseleave", hideTip);
-      hit.addEventListener("click", () => {
-        const sel = document.getElementById(host.id.replace("daily", "pick"));
-        if (sel) { sel.value = v.date; sel.dispatchEvent(new Event("change")); }
-      });
     }
   }
 
-  function trendChart(host, r, date) {
-    host.innerHTML = "";
-    const pts = (r.history[date] || []);
-    if (!pts.length) { host.textContent = "No history for this date."; return; }
+  // x is real time, so gaps (machine off) show as gaps
+  function cheapestChart(host, c) {
+    const pts = c.runs.map((p) => ({ ...p, ms: new Date(p.t.replace(" ", "T")).getTime() }));
     const W = 1000, H = 240, L = 56, R = 24, T = 12, B = 34;
     const dom = yDomain(pts.map((p) => p.total));
-    const n = pts.length;
-    const x = (i) => n === 1 ? (L + W - R) / 2 : L + (W - L - R) * (i / (n - 1));
+    const t0 = pts[0].ms, t1 = pts[pts.length - 1].ms;
+    const x = (ms) => t1 === t0 ? (L + W - R) / 2 : L + (W - L - R) * ((ms - t0) / (t1 - t0));
     const y = (v) => T + (H - T - B) * (1 - (v - dom.lo) / (dom.hi - dom.lo));
     const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
-      "aria-label": "Best price for " + date + " across search runs" }, host);
+      "aria-label": "Cheapest day-trip price found by each search run" }, host);
     yAxis(svg, y, dom, L, W - R);
     const ax = el("g", { class: "axis" }, svg);
-    const every = Math.max(1, Math.ceil(n / 8));
-    pts.forEach((p, i) => {
-      if (i % every === 0 || i === n - 1) {
-        const t = el("text", { x: x(i), y: H - 12, "text-anchor": n === 1 ? "middle" : i === 0 ? "start" : i === n - 1 ? "end" : "middle" }, ax);
-        t.textContent = p.t.slice(5);
-      }
+    // evenly spaced time labels; the strings come back in the same local time they were written in
+    const pad = (v) => String(v).padStart(2, "0");
+    const short = t1 - t0 < 2 * 86400000;
+    const fmt = (ms) => { const d = new Date(ms);
+      return pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + (short ? " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) : ""); };
+    const ticks = t1 === t0 ? [t0] : [0, 1, 2, 3, 4, 5].map((k) => t0 + (t1 - t0) * k / 5);
+    ticks.forEach((ms, k) => {
+      const t = el("text", { x: x(ms), y: H - 12, "text-anchor": ticks.length === 1 ? "middle" : k === 0 ? "start" : k === ticks.length - 1 ? "end" : "middle" }, ax);
+      t.textContent = fmt(ms);
     });
-    if (n > 1) el("polyline", { points: pts.map((p, i) => x(i) + "," + y(p.total)).join(" "),
+    el("line", { x1: L, x2: W - R, y1: y(c.median), y2: y(c.median), stroke: "var(--text-muted)",
+      "stroke-dasharray": "3 4", "stroke-width": 1 }, svg);
+    // break the line where runs are missing (more than 12 h apart) instead of bridging the gap
+    const segs = [[]];
+    pts.forEach((p, i) => {
+      if (i && p.ms - pts[i - 1].ms > 12 * 3600000) segs.push([]);
+      segs[segs.length - 1].push(p);
+    });
+    for (const seg of segs) if (seg.length > 1) el("polyline", { points: seg.map((p) => x(p.ms) + "," + y(p.total)).join(" "),
       fill: "none", stroke: "var(--series-1)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
     const cross = el("line", { y1: T, y2: H - B, stroke: "var(--text-muted)", "stroke-width": 1,
       visibility: "hidden" }, svg);
-    pts.forEach((p, i) => el("circle", { cx: x(i), cy: y(p.total), r: 4.5,
+    pts.forEach((p) => el("circle", { cx: x(p.ms), cy: y(p.total), r: 4.5,
       fill: p.kind === "bundle" ? "var(--series-2)" : "var(--series-1)",
       stroke: "var(--surface-1)", "stroke-width": 2 }, svg));
     const hit = el("rect", { x: L, y: T, width: W - L - R, height: H - T - B, fill: "transparent" }, svg);
@@ -354,14 +362,15 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
       const box = svg.getBoundingClientRect();
       const vx = (e.clientX - box.left) * W / box.width;
       let best = 0;
-      pts.forEach((p, i) => { if (Math.abs(x(i) - vx) < Math.abs(x(best) - vx)) best = i; });
-      cross.setAttribute("x1", x(best)); cross.setAttribute("x2", x(best));
-      cross.setAttribute("visibility", "visible");
+      pts.forEach((p, i) => { if (Math.abs(x(p.ms) - vx) < Math.abs(x(pts[best].ms) - vx)) best = i; });
       const p = pts[best], prev = pts[best - 1];
+      cross.setAttribute("x1", x(p.ms)); cross.setAttribute("x2", x(p.ms));
+      cross.setAttribute("visibility", "visible");
       const diff = prev ? p.total - prev.total : null;
       showTip(e, "<div>run " + p.t + "</div><b>" + krw(p.total) + "</b> · " +
         (p.kind === "bundle" ? "round trip" : "2 × one-way") +
-        (diff ? "<div>" + (diff < 0 ? "▼ " : "▲ ") + krw(Math.abs(diff)) + " vs. previous</div>" : ""));
+        "<div>travel date " + p.date + " (" + p.weekday + ")</div>" +
+        (diff ? "<div>" + (diff < 0 ? "▼ " : "▲ ") + krw(Math.abs(diff)) + " vs. previous run</div>" : ""));
     });
     hit.addEventListener("mouseleave", () => { hideTip(); cross.setAttribute("visibility", "hidden"); });
   }
@@ -369,16 +378,7 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
   routes.forEach((r, idx) => {
     if (!r.days.length) return;
     dailyChart(document.getElementById("daily-" + idx), r);
-    const sel = document.getElementById("pick-" + idx);
-    for (const d of r.days) {
-      const o = document.createElement("option");
-      o.value = d.date;
-      o.textContent = d.date + " (" + d.weekday + ") " + krw(d.total);
-      sel.appendChild(o);
-    }
-    sel.value = r.top[0].date;
-    sel.addEventListener("change", () => trendChart(document.getElementById("trend-" + idx), r, sel.value));
-    trendChart(document.getElementById("trend-" + idx), r, sel.value);
+    if (r.cheapest) cheapestChart(document.getElementById("trend-" + idx), r.cheapest);
   });
 })();
 {% endraw %}
