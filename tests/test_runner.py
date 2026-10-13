@@ -1,3 +1,5 @@
+import threading
+import time
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -183,6 +185,124 @@ def test_interrupted_run_resumes_only_remaining_tasks(tmp_path):
     run_id = r.run()
     assert run_id == 1  # same run continued
     assert not set(first_calls) & set(src2.calls)  # finished tasks were not repeated
+    assert r.store.recent_runs(1)[0]["status"] == "done"
+    assert len(r.store.latest_best("seoul-fukuoka")) == 10
+
+
+def two_source_runner(tmp_path, google, naver, now=NOW):
+    cfg = settings()
+    cfg.sources = ["google", "naver"]
+    return Runner(
+        cfg,
+        Store(tmp_path / "f.db"),
+        {"google": google, "naver": naver},
+        now=lambda: now,
+        sleep=lambda s: None,
+    )
+
+
+class TracingSource(FakeSource):
+    """Records every call in a log shared by all sources and how many calls overlap."""
+
+    def __init__(self, name, log, barrier=None, pause=0.002):
+        super().__init__(name)
+        self.log = log
+        self.barrier = barrier
+        self.pause = pause
+        self.active = 0
+        self.max_active = 0
+        self.lock = threading.Lock()
+
+    def search(self, task, route, pacer):
+        with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        try:
+            if self.barrier is not None and not self.calls:
+                # both sources must be inside their first search at the same time
+                self.barrier.wait(timeout=5)
+            time.sleep(self.pause)
+            result = super().search(task, route, pacer)
+            self.log.append((self.name, task.kind))
+            return result
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
+def test_sources_search_in_parallel(tmp_path):
+    log = []
+    barrier = threading.Barrier(2)
+    google = TracingSource("google", log, barrier)
+    naver = TracingSource("naver", log, barrier)
+    r = two_source_runner(tmp_path, google, naver)
+    r.run()  # a sequential runner breaks the barrier and the first search fails
+    run = r.store.recent_runs(1)[0]
+    assert run["status"] == "done"
+    for src in (google, naver):
+        assert run["sources"][src.name]["status"] == "ok"
+        assert run["sources"][src.name].get("failed", 0) == 0
+        assert len(src.calls) == len(set(src.calls))  # no task searched twice
+    assert len(r.store.latest_best("seoul-fukuoka")) == 10
+
+
+def test_each_source_searches_one_task_at_a_time(tmp_path):
+    log = []
+    google = TracingSource("google", log)
+    naver = TracingSource("naver", log)
+    two_source_runner(tmp_path, google, naver).run()
+    assert google.max_active == 1
+    assert naver.max_active == 1
+
+
+def test_bundles_start_after_both_sources_finish_one_way_searches(tmp_path):
+    log = []
+    google = TracingSource("google", log)
+    naver = TracingSource("naver", log, pause=0.01)  # naver finishes its one-ways last
+    two_source_runner(tmp_path, google, naver).run()
+    kinds = [kind for _, kind in log]
+    first_bundle = kinds.index("bundle")
+    assert "bundle" not in kinds[:first_bundle]
+    assert all(k == "bundle" for k in kinds[first_bundle:])
+    assert {name for name, kind in log if kind == "bundle"} == {"google", "naver"}
+
+
+def test_blocked_source_stops_while_the_other_keeps_searching_in_parallel(tmp_path):
+    log = []
+    bad = TracingSource("google", log)
+    bad.blocked_after = 2
+    good = TracingSource("naver", log)
+    r = two_source_runner(tmp_path, bad, good)
+    r.run()
+    run = r.store.recent_runs(1)[0]
+    assert run["sources"]["google"]["status"] == "blocked"
+    assert run["sources"]["naver"]["status"] == "ok"
+    assert len(bad.calls) == 3
+    assert len(r.store.latest_best("seoul-fukuoka")) == 10
+
+
+def test_crash_in_one_source_is_resumed_without_repeating_finished_tasks(tmp_path):
+    class Crash(BaseException):
+        pass
+
+    google, naver = FakeSource("google"), FakeSource("naver")
+    real = google.search
+
+    def crashing(task, route, pacer):
+        if len(google.calls) == 4:
+            raise Crash
+        return real(task, route, pacer)
+
+    google.search = crashing
+    with pytest.raises(Crash):
+        two_source_runner(tmp_path, google, naver).run()
+    first = set(google.calls) | set(naver.calls)
+
+    google2, naver2 = FakeSource("google"), FakeSource("naver")
+    r = two_source_runner(tmp_path, google2, naver2, now=NOW + timedelta(minutes=30))
+    assert r.run() == 1
+    assert not first & (set(google2.calls) | set(naver2.calls))
+    assert google2.calls  # google still had work left
     assert r.store.recent_runs(1)[0]["status"] == "done"
     assert len(r.store.latest_best("seoul-fukuoka")) == 10
 
