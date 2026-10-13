@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Day-trip Flights</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface-0: #f4f3f0;
+  --surface-1: #fcfcfb;
+  --border: #e2e0da;
+  --grid: #ebe9e4;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #7a7973;
+  --series-1: #2a78d6;   /* combo: two one-way tickets */
+  --series-2: #eb6834;   /* bundle: one round-trip ticket */
+  --weekend: #f0efec;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --critical: #d03b3b;
+  --link: #1c5cab;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #121211;
+    --surface-1: #1a1a19;
+    --border: #33332f;
+    --grid: #2a2a27;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8f8e86;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --weekend: #24241f;
+    --link: #86b6ef;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211;
+  --surface-1: #1a1a19;
+  --border: #33332f;
+  --grid: #2a2a27;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8f8e86;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --weekend: #24241f;
+  --link: #86b6ef;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--surface-0); color: var(--text-primary);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
+        "Noto Sans KR", sans-serif;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 17px; margin: 0 0 12px; }
+h3 { font-size: 14px; margin: 0 0 8px; color: var(--text-secondary); font-weight: 600; }
+.sub { color: var(--text-secondary); margin: 0 0 20px; }
+.card {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px; margin-bottom: 16px;
+}
+.status { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.chip { display: inline-flex; gap: 6px; align-items: center; color: var(--text-secondary); }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.hero { display: flex; flex-wrap: wrap; gap: 8px 32px; align-items: baseline; }
+.hero .num { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hero .what { color: var(--text-secondary); }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--grid);
+         vertical-align: top; white-space: nowrap; }
+th { color: var(--text-muted); font-weight: 600; font-size: 12px; }
+td.num, th.num { text-align: right; }
+.kind { display: inline-flex; gap: 6px; align-items: center; }
+.swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.legs div { line-height: 1.6; }
+.muted { color: var(--text-muted); }
+.down { color: var(--good); }
+.up { color: var(--critical); }
+a { color: var(--link); }
+.links a { margin-right: 10px; }
+.legend { display: flex; gap: 16px; color: var(--text-secondary); margin-bottom: 8px;
+          flex-wrap: wrap; }
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.axis text { fill: var(--text-muted); font-size: 11px; }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+.tip {
+  position: absolute; pointer-events: none; background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12); font-size: 12px; white-space: nowrap;
+  display: none; z-index: 2; color: var(--text-primary);
+}
+.tip b { font-variant-numeric: tabular-nums; }
+select { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);
+         background: var(--surface-1); color: var(--text-primary); }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+details summary { cursor: pointer; color: var(--text-secondary); }
+footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Day-trip Flights</h1>
+  <p class="sub">Cheapest same-day round trips · direct flights · 1 adult · economy · prices in KRW
+    · generated {{ generated_kst }} ({{ timezone }})</p>
+
+  <section class="card">
+    <h2>Last run</h2>
+    {% if last_run %}
+    <div class="status">
+      <span class="chip">
+        {% if last_run.status == "done" %}<span class="dot" style="background:var(--good)"></span>✓ complete
+        {% elif last_run.status == "running" %}<span class="dot" style="background:var(--warning)"></span>… running
+        {% elif last_run.status == "partial" %}<span class="dot" style="background:var(--warning)"></span>! partial
+        {% else %}<span class="dot" style="background:var(--critical)"></span>✕ failed{% endif %}
+      </span>
+      <span class="chip">{{ last_run.mode }} scan · started {{ last_run.started_kst }}{% if last_run.finished_kst %} · finished {{ last_run.finished_kst }}{% endif %}</span>
+      {% for name, s in last_run.sources.items() %}
+      <span class="chip" title="{{ s.error or '' }}">
+        {% if s.status == "ok" %}<span class="dot" style="background:var(--good)"></span>✓
+        {% elif s.status == "partial" %}<span class="dot" style="background:var(--warning)"></span>!
+        {% else %}<span class="dot" style="background:var(--critical)"></span>✕{% endif %}
+        <b>{{ name }}</b> {{ s.status }} · {{ s.requests }} requests
+      </span>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">No runs yet.</p>
+    {% endif %}
+  </section>
+
+  {% for r in routes %}
+  <section class="card">
+    <h2>{{ r.name }} · {{ r.origins|join("/") }} → {{ r.destination }}</h2>
+    <p class="sub" style="margin-bottom:12px">Outbound departs {{ r.out_window }} · return departs {{ r.back_window }} (local time)</p>
+    {% if r.top %}
+    {% set best = r.top[0] %}
+    <div class="hero">
+      <span class="num">₩{{ best.total|krw }}</span>
+      <span class="what">cheapest: <b>{{ best.date }} ({{ best.weekday }})</b> ·
+        {{ "round-trip ticket" if best.kind == "bundle" else "two one-way tickets" }} ·
+        {% for leg in best.legs %}{{ leg.flight_no }} {{ leg.dep }}{{ " / " if not loop.last }}{% endfor %}</span>
+    </div>
+    {% else %}
+    <p class="muted">No results yet for this route.</p>
+    {% endif %}
+  </section>
+
+  {% if r.top %}
+  <section class="card">
+    <h2>Top {{ r.top|length }} dates</h2>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Date</th><th class="num">Total</th><th class="num">vs. last run</th>
+        <th>Ticket</th><th>Flights</th><th>Book</th></tr></thead>
+      <tbody>
+      {% for d in r.top %}
+      <tr>
+        <td class="muted">{{ loop.index }}</td>
+        <td>{{ d.date }} <span class="muted">{{ d.weekday }}</span></td>
+        <td class="num"><b>₩{{ d.total|krw }}</b></td>
+        <td class="num">{% if d.change is none %}<span class="muted">—</span>
+          {% elif d.change < 0 %}<span class="down">▼ {{ (-d.change)|krw }}</span>
+          {% elif d.change > 0 %}<span class="up">▲ {{ d.change|krw }}</span>
+          {% else %}<span class="muted">=</span>{% endif %}</td>
+        <td><span class="kind"><span class="swatch" style="background:var({{ '--series-2' if d.kind == 'bundle' else '--series-1' }})"></span>
+          {{ "Round trip" if d.kind == "bundle" else "2 × one-way" }}</span></td>
+        <td class="legs">{% for leg in d.legs %}<div>{{ leg.flight_no }} <span class="muted">{{ leg.airline }}</span>
+          {{ leg.origin }} {{ leg.dep }} → {{ leg.destination }} {{ leg.arr }}
+          <span class="muted">· {{ leg.source }}{% if leg.price %} · ₩{{ leg.price|krw }}{% endif %}</span></div>{% endfor %}</td>
+        <td class="links">{% for lk in d.links %}<a href="{{ lk.url }}" target="_blank" rel="noopener">{{ lk.label }}</a>{% endfor %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Best price by date</h2>
+    <div class="legend">
+      <span class="kind"><span class="swatch" style="background:var(--series-1)"></span>2 × one-way</span>
+      <span class="kind"><span class="swatch" style="background:var(--series-2)"></span>Round-trip ticket</span>
+      <span class="kind"><span class="swatch" style="background:var(--weekend);outline:1px solid var(--border)"></span>Weekend</span>
+    </div>
+    <div class="chart" id="daily-{{ loop.index0 }}"></div>
+    <details style="margin-top:12px"><summary>Table view</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th class="num">Best total</th><th>Ticket</th><th>Flights</th></tr></thead>
+        <tbody>{% for d in r.days %}<tr><td>{{ d.date }} <span class="muted">{{ d.weekday }}</span></td>
+          <td class="num">₩{{ d.total|krw }}</td><td>{{ "Round trip" if d.kind == "bundle" else "2 × one-way" }}</td>
+          <td>{% for leg in d.legs %}{{ leg.flight_no }} {{ leg.dep }}{{ " / " if not loop.last }}{% endfor %}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2>Price trend for one date</h2>
+    <div class="row"><label for="pick-{{ loop.index0 }}">Travel date</label>
+      <select id="pick-{{ loop.index0 }}"></select>
+      <span class="muted">each point is one search run</span></div>
+    <div class="chart" id="trend-{{ loop.index0 }}"></div>
+  </section>
+  {% endif %}
+  {% endfor %}
+
+  <footer>Prices are snapshots taken from Google Flights / Naver Flights and can change at any time.
+    Always confirm on the booking site. Checking each site's terms of use is the user's responsibility.</footer>
+</main>
+<div class="tip" id="tip"></div>
+<script type="application/json" id="report-data">{{ routes|tojson }}</script>
+<script>
+{% raw %}
+(function () {
+  "use strict";
+  const routes = JSON.parse(document.getElementById("report-data").textContent);
+  const tip = document.getElementById("tip");
+  const NS = "http://www.w3.org/2000/svg";
+  const krw = (v) => "₩" + v.toLocaleString("en-US");
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+  function el(name, attrs, parent) {
+    const e = document.createElementNS(NS, name);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function showTip(evt, html) {
+    tip.innerHTML = html;
+    tip.style.display = "block";
+    const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = evt.pageX + pad, y = evt.pageY - h - pad;
+    if (x + w > window.scrollX + document.documentElement.clientWidth - 8) x = evt.pageX - w - pad;
+    if (y < window.scrollY + 8) y = evt.pageY + pad;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+  }
+  function hideTip() { tip.style.display = "none"; }
+
+  // "nice" y-domain that does not have to start at zero (dots/lines, not bars)
+  function yDomain(values) {
+    let lo = Math.min(...values), hi = Math.max(...values);
+    if (lo === hi) { lo -= 10000; hi += 10000; }
+    const pad = (hi - lo) * 0.12;
+    lo = Math.max(0, lo - pad); hi = hi + pad;
+    const step = niceStep((hi - lo) / 4);
+    return { lo: Math.floor(lo / step) * step, hi: Math.ceil(hi / step) * step, step };
+  }
+  function niceStep(raw) {
+    const p = Math.pow(10, Math.floor(Math.log10(raw)));
+    for (const m of [1, 2, 2.5, 5, 10]) if (raw <= m * p) return m * p;
+    return 10 * p;
+  }
+  function yAxis(svg, y, dom, left, right) {
+    const g = el("g", { class: "axis" }, svg);
+    for (let v = dom.lo; v <= dom.hi + 1; v += dom.step) {
+      el("line", { class: "gridline", x1: left, x2: right, y1: y(v), y2: y(v) }, g);
+      const t = el("text", { x: left - 8, y: y(v) + 4, "text-anchor": "end" }, g);
+      t.textContent = Math.round(v / 1000).toLocaleString("en-US") + "k";
+    }
+  }
+  function legsHtml(d) {
+    return d.legs.map((l) => esc(l.flight_no) + " " + esc(l.origin) + " " + l.dep + " → " +
+      esc(l.destination) + " " + l.arr + ' <span style="color:var(--text-muted)">' + esc(l.source) + "</span>").join("<br>");
+  }
+
+  function dailyChart(host, r) {
+    const W = 1000, H = 300, L = 56, R = 12, T = 12, B = 34;
+    const start = new Date(r.start + "T00:00:00");
+    const n = r.days_ahead;
+    const byDate = Object.fromEntries(r.days.map((d) => [d.date, d]));
+    const dom = yDomain(r.days.map((d) => d.total));
+    const bw = (W - L - R) / n;
+    const x = (i) => L + bw * (i + 0.5);
+    const y = (v) => T + (H - T - B) * (1 - (v - dom.lo) / (dom.hi - dom.lo));
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+      "aria-label": "Best day-trip price for each date" }, host);
+    const days = [];
+    for (let i = 0; i < n; i++) {
+      const dt = new Date(start.getTime() + i * 86400000);
+      const iso = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+      days.push({ i, dt, iso });
+      if (dt.getDay() === 0 || dt.getDay() === 6)
+        el("rect", { x: L + bw * i, y: T, width: bw, height: H - T - B, fill: "var(--weekend)" }, svg);
+    }
+    yAxis(svg, y, dom, L, W - R);
+    const ax = el("g", { class: "axis" }, svg);
+    for (const d of days) {
+      if (d.dt.getDate() === 1 || d.i === 0) {
+        const t = el("text", { x: x(d.i), y: H - 12, "text-anchor": d.i === 0 ? "start" : "middle" }, ax);
+        t.textContent = d.dt.toLocaleString("en-US", { month: "short" }) + " " + d.dt.getDate();
+        el("line", { x1: x(d.i), x2: x(d.i), y1: H - B, y2: H - B + 4, stroke: "var(--text-muted)" }, ax);
+      }
+    }
+    const best = Math.min(...r.days.map((d) => d.total));
+    el("line", { x1: L, x2: W - R, y1: y(best), y2: y(best), stroke: "var(--text-muted)",
+      "stroke-dasharray": "3 4", "stroke-width": 1 }, svg);
+    for (const d of days) {
+      const v = byDate[d.iso];
+      if (!v) continue;
+      el("circle", { cx: x(d.i), cy: y(v.total), r: 4.5,
+        fill: v.kind === "bundle" ? "var(--series-2)" : "var(--series-1)",
+        stroke: "var(--surface-1)", "stroke-width": 2 }, svg);
+      const hit = el("rect", { x: L + bw * d.i, y: T, width: bw, height: H - T - B, fill: "transparent" }, svg);
+      hit.addEventListener("mousemove", (e) => showTip(e,
+        "<div>" + v.date + " (" + v.weekday + ")</div><b>" + krw(v.total) + "</b> · " +
+        (v.kind === "bundle" ? "round trip" : "2 × one-way") + "<div>" + legsHtml(v) + "</div>"));
+      hit.addEventListener("mouseleave", hideTip);
+      hit.addEventListener("click", () => {
+        const sel = document.getElementById(host.id.replace("daily", "pick"));
+        if (sel) { sel.value = v.date; sel.dispatchEvent(new Event("change")); }
+      });
+    }
+  }
+
+  function trendChart(host, r, date) {
+    host.innerHTML = "";
+    const pts = (r.history[date] || []);
+    if (!pts.length) { host.textContent = "No history for this date."; return; }
+    const W = 1000, H = 240, L = 56, R = 24, T = 12, B = 34;
+    const dom = yDomain(pts.map((p) => p.total));
+    const n = pts.length;
+    const x = (i) => n === 1 ? (L + W - R) / 2 : L + (W - L - R) * (i / (n - 1));
+    const y = (v) => T + (H - T - B) * (1 - (v - dom.lo) / (dom.hi - dom.lo));
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+      "aria-label": "Best price for " + date + " across search runs" }, host);
+    yAxis(svg, y, dom, L, W - R);
+    const ax = el("g", { class: "axis" }, svg);
+    const every = Math.max(1, Math.ceil(n / 8));
+    pts.forEach((p, i) => {
+      if (i % every === 0 || i === n - 1) {
+        const t = el("text", { x: x(i), y: H - 12, "text-anchor": n === 1 ? "middle" : i === 0 ? "start" : i === n - 1 ? "end" : "middle" }, ax);
+        t.textContent = p.t.slice(5);
+      }
+    });
+    if (n > 1) el("polyline", { points: pts.map((p, i) => x(i) + "," + y(p.total)).join(" "),
+      fill: "none", stroke: "var(--series-1)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+    const cross = el("line", { y1: T, y2: H - B, stroke: "var(--text-muted)", "stroke-width": 1,
+      visibility: "hidden" }, svg);
+    pts.forEach((p, i) => el("circle", { cx: x(i), cy: y(p.total), r: 4.5,
+      fill: p.kind === "bundle" ? "var(--series-2)" : "var(--series-1)",
+      stroke: "var(--surface-1)", "stroke-width": 2 }, svg));
+    const hit = el("rect", { x: L, y: T, width: W - L - R, height: H - T - B, fill: "transparent" }, svg);
+    hit.addEventListener("mousemove", (e) => {
+      const box = svg.getBoundingClientRect();
+      const vx = (e.clientX - box.left) * W / box.width;
+      let best = 0;
+      pts.forEach((p, i) => { if (Math.abs(x(i) - vx) < Math.abs(x(best) - vx)) best = i; });
+      cross.setAttribute("x1", x(best)); cross.setAttribute("x2", x(best));
+      cross.setAttribute("visibility", "visible");
+      const p = pts[best], prev = pts[best - 1];
+      const diff = prev ? p.total - prev.total : null;
+      showTip(e, "<div>run " + p.t + "</div><b>" + krw(p.total) + "</b> · " +
+        (p.kind === "bundle" ? "round trip" : "2 × one-way") +
+        (diff ? "<div>" + (diff < 0 ? "▼ " : "▲ ") + krw(Math.abs(diff)) + " vs. previous</div>" : ""));
+    });
+    hit.addEventListener("mouseleave", () => { hideTip(); cross.setAttribute("visibility", "hidden"); });
+  }
+
+  routes.forEach((r, idx) => {
+    if (!r.days.length) return;
+    dailyChart(document.getElementById("daily-" + idx), r);
+    const sel = document.getElementById("pick-" + idx);
+    for (const d of r.days) {
+      const o = document.createElement("option");
+      o.value = d.date;
+      o.textContent = d.date + " (" + d.weekday + ") " + krw(d.total);
+      sel.appendChild(o);
+    }
+    sel.value = r.top[0].date;
+    sel.addEventListener("change", () => trendChart(document.getElementById("trend-" + idx), r, sel.value));
+    trendChart(document.getElementById("trend-" + idx), r, sel.value);
+  });
+})();
+{% endraw %}
+</script>
+</body>
+</html>
