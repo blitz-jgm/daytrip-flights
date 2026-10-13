@@ -78,10 +78,15 @@ CREATE TABLE IF NOT EXISTS route_service (
 
 
 class Store:
+    """One SQLite connection. It may be used from several threads, but only one at a time:
+    callers that share it across threads must serialize access themselves (see Runner)."""
+
     def __init__(self, path: str | Path) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path)
+        self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
+        # wait for another process's write (e.g. `daytrip status`) instead of failing
+        self.db.execute("PRAGMA busy_timeout=5000")
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript(SCHEMA)
