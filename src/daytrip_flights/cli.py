@@ -28,7 +28,8 @@ def _setup_logging() -> None:
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    logging.getLogger("primp").setLevel(logging.WARNING)  # logs every URL at INFO
+    for noisy in ("primp", "httpx"):  # both log every request URL at INFO
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def build_sources(settings: Settings) -> dict[str, Source]:
