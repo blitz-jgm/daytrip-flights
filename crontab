@@ -1,0 +1,3 @@
+# Every 3 hours (container TZ, Asia/Seoul by default): 00:00, 03:00, ... 21:00.
+# supercronic does not start a job while the previous one is still running.
+0 */3 * * * daytrip search --once

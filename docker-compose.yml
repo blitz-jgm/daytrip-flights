@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    image: daytrip-flights:local
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      # SQLite database and report.html live here; open ./data/report.html in a browser.
+      - ./data:/data
+      # edit routes and limits without rebuilding
+      - ./config.yaml:/app/config.yaml:ro
