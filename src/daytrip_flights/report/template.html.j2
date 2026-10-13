@@ -252,7 +252,7 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 24px; }
     if (lo === hi) { lo -= 10000; hi += 10000; }
     const pad = (hi - lo) * 0.12;
     lo = Math.max(0, lo - pad); hi = hi + pad;
-    const step = niceStep((hi - lo) / 4);
+    const step = niceStep((hi - lo) / 5);
     return { lo: Math.floor(lo / step) * step, hi: Math.ceil(hi / step) * step, step };
   }
   function niceStep(raw) {
