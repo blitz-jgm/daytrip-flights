@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS runs (
     started_at TEXT NOT NULL,
     finished_at TEXT,
     status TEXT NOT NULL,            -- running | done | partial | failed
-    mode TEXT NOT NULL,              -- full | refresh
+    mode TEXT NOT NULL,              -- full | refresh | limited
     requests_total INTEGER NOT NULL DEFAULT 0,
     sources_json TEXT                -- per-source status, requests, task counts
 );
