@@ -75,7 +75,12 @@ class Pacer:
                 if attempt == self.retries:
                     raise
                 wait = self.backoff_base * 2**attempt
-                log.warning("%s: attempt %d failed (%s); retrying in %.0fs",
-                            self.name, attempt + 1, exc, wait)
+                log.warning(
+                    "%s: attempt %d failed (%s); retrying in %.0fs",
+                    self.name,
+                    attempt + 1,
+                    exc,
+                    wait,
+                )
                 self._sleep(wait)
         raise AssertionError("unreachable")
