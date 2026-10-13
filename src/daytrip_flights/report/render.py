@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from statistics import median
 from datetime import UTC, datetime
 from pathlib import Path
+from statistics import median
 from typing import Any
 from zoneinfo import ZoneInfo
 
