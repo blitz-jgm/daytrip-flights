@@ -74,7 +74,9 @@ class Runner:
         else:
             self.store.abandon_stale_runs(now)
             mode = planner.choose_mode(self.settings, self.store, now)
-            run_id = self.store.start_run(mode, now)
+            # a --days smoke test must not stand in for the daily full scan
+            limited = self.days_ahead is not None and mode == "full"
+            run_id = self.store.start_run("limited" if limited else mode, now)
             tasks = planner.plan_oneway(
                 self.settings, self.store, mode, today, now, active, self.days_ahead
             )

@@ -194,3 +194,20 @@ def test_bundles_are_only_searched_for_origins_with_flights(tmp_path):
     runner(tmp_path, src, cfg).run()
     bundles = [c for c in src.calls if c[4] == "bundle"]
     assert bundles and all(c[2] == "ICN" for c in bundles)
+
+
+def test_horizon_limited_run_does_not_count_as_full_scan(tmp_path):
+    cfg = settings(days=10)
+    smoke = Runner(
+        cfg,
+        Store(tmp_path / "f.db"),
+        {"google": FakeSource()},
+        days_ahead=2,
+        now=lambda: NOW,
+        sleep=lambda s: None,
+    )
+    smoke.run()
+    assert smoke.store.recent_runs(1)[0]["mode"] == "limited"
+    r = runner(tmp_path, FakeSource(), cfg, now=NOW + timedelta(hours=1))
+    r.run()
+    assert r.store.recent_runs(1)[0]["mode"] == "full"
