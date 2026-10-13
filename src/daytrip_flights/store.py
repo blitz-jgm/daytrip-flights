@@ -74,6 +74,14 @@ CREATE TABLE IF NOT EXISTS route_service (
     checked_at TEXT NOT NULL,
     PRIMARY KEY (source, origin, destination)
 );
+
+CREATE TABLE IF NOT EXISTS notifications (
+    channel TEXT NOT NULL,           -- telegram | email
+    route TEXT NOT NULL,             -- '' for messages that cover all routes
+    key TEXT NOT NULL,               -- what was sent, e.g. "2026-11-10:380000" or a local date
+    sent_at TEXT NOT NULL,
+    PRIMARY KEY (channel, route, key)
+);
 """
 
 
@@ -133,6 +141,11 @@ class Store:
 
     def run_mode(self, run_id: int) -> str:
         return self.db.execute("SELECT mode FROM runs WHERE id=?", (run_id,)).fetchone()["mode"]
+
+    def run(self, run_id: int) -> dict[str, Any]:
+        d = dict(self.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone())
+        d["sources"] = json.loads(d.pop("sources_json") or "{}")
+        return d
 
     def last_full_scan(self) -> datetime | None:
         row = self.db.execute(
@@ -337,12 +350,29 @@ class Store:
         """The cheapest date of every finished run (smoke tests excluded), oldest first."""
         # SQLite takes the bare columns from the row that holds MIN()
         rows = self.db.execute(
-            "SELECT r.started_at, b.date, b.kind, MIN(b.total_krw) AS total_krw FROM runs r "
+            "SELECT r.id AS run_id, r.started_at, b.date, b.kind, MIN(b.total_krw) AS total_krw "
+            "FROM runs r "
             "JOIN daily_best b ON b.run_id = r.id WHERE b.route=? AND r.mode != 'limited' "
             "AND r.status IN ('done', 'partial') GROUP BY r.id ORDER BY r.started_at",
             (route,),
         )
         return [{**dict(r), "date": date.fromisoformat(r["date"])} for r in rows]
+
+    # ---- notifications ----------------------------------------------------------------------
+
+    def notified(self, channel: str, route: str, key: str) -> bool:
+        row = self.db.execute(
+            "SELECT 1 FROM notifications WHERE channel=? AND route=? AND key=?",
+            (channel, route, key),
+        ).fetchone()
+        return row is not None
+
+    def add_notification(self, channel: str, route: str, key: str, now: datetime) -> None:
+        with self.db:
+            self.db.execute(
+                "INSERT OR IGNORE INTO notifications VALUES (?, ?, ?, ?)",
+                (channel, route, key, now.isoformat()),
+            )
 
     # ---- route service cache ----------------------------------------------------------------
 

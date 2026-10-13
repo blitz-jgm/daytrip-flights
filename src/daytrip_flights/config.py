@@ -77,6 +77,13 @@ class Tiers(BaseModel):
     no_service_cache_days: int = 7
 
 
+class Notify(BaseModel):
+    """When to send. Channels are switched on by their secrets in the environment (.env)."""
+
+    alert_below_typical_pct: float = 10.0  # Telegram: this far below the median of earlier runs
+    alert_min_runs: int = 8  # ... once there are this many runs, so "typical" means something
+
+
 class Settings(BaseModel):
     routes: list[Route]
     sources: list[str] = Field(default_factory=lambda: ["google", "naver"])
@@ -84,6 +91,7 @@ class Settings(BaseModel):
     currency: str = "KRW"
     budget: Budget = Field(default_factory=Budget)
     tiers: Tiers = Field(default_factory=Tiers)
+    notify: Notify = Field(default_factory=Notify)
     resume_max_age_hours: float = 6.0
 
 
