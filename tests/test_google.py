@@ -76,3 +76,7 @@ def test_bundle_rejects_one_way_fallback_prices(route, pacer):
         .offers
     )
     assert offers == []
+
+
+def test_google_declares_bundle_support():
+    assert GoogleSource.supports_bundle is True

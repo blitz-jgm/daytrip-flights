@@ -1,0 +1,35 @@
+# Day-trip routes. out_window is in origin-local time, back_window in destination-local time
+# (Korea and Japan are both UTC+9). Departure times are inclusive at both ends.
+routes:
+  - name: seoul-fukuoka
+    origins: [ICN, GMP]
+    destination: FUK
+    out_window: "06:00-09:00"
+    back_window: "18:00-21:00"
+    days_ahead: 90
+
+  # Reverse direction (Fukuoka resident visiting Seoul) uses the same structure:
+  # - name: fukuoka-seoul
+  #   origins: [FUK]
+  #   destination: ICN
+  #   out_window: "07:00-10:00"
+  #   back_window: "18:00-21:00"
+
+sources: [google]   # add "naver" once its source is enabled
+
+# Conservative request pacing, per source and per run.
+budget:
+  max_requests_per_run: 400
+  delay_min_s: 4
+  delay_max_s: 8
+  retries: 3
+  backoff_base_s: 5
+
+tiers:
+  full_scan_every_hours: 24      # every date in the horizon, at most once a day
+  refresh_next_days: 14          # other runs: the next N days ...
+  refresh_top_dates: 15          # ... plus the N cheapest dates from the last snapshot
+  bundle_top_dates: 10           # round-trip tickets are priced only for the top N dates
+  bundle_outbounds_per_date: 2   # and only for the N cheapest in-window outbound flights
+  no_service_after_empty: 5      # N empty answers in a row => no direct service, skip
+  no_service_cache_days: 7

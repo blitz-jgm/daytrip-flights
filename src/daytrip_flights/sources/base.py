@@ -18,5 +18,6 @@ class Source(Protocol):
     """
 
     name: str
+    supports_bundle: bool
 
     def search(self, task: SearchTask, route: Route, pacer: Pacer) -> SearchResult: ...

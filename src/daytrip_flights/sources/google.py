@@ -45,6 +45,7 @@ def _leg(f: Flights) -> Leg | None:
 
 class GoogleSource:
     name = "google"
+    supports_bundle = True
 
     def __init__(
         self,
