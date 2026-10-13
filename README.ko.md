@@ -40,6 +40,7 @@ open data/report.html         # macOS. 다른 OS는 브라우저로 열기
 docker compose run --rm app search --once     # 1회 검색
 docker compose run --rm app status            # 최근 실행 + 최저가 날짜
 docker compose run --rm app report            # report.html 다시 만들기
+docker compose run --rm app notify-test       # 시험 알림 + 요약 메일 보내기(.env 필요)
 docker compose logs -f app                    # 스케줄 로그 보기
 ```
 
@@ -106,8 +107,28 @@ sources: [google, naver]
 | `offers` | 조건에 맞는 모든 항공편: 편명, 항공사, 시각, 가격, 통화, 예약 링크, 수집 시각 |
 | `daily_best` | 실행별·날짜별 최저가 조합 → 가격 추이 |
 | `route_service` | 소스·방향별 "직항 없음" 캐시 |
+| `notifications` | 보낸 텔레그램 알림과 이메일 요약 기록(중복 방지) |
 
 덮어쓰지 않고 누적하므로 가격 추이를 계속 볼 수 있습니다.
+
+## 알림 (선택)
+
+- **텔레그램 알림**: 실행의 최저가가 실제 특가일 때만 보냅니다. 역대 최저가이거나, 실행이
+  `alert_min_runs`(8)회 이상 쌓인 뒤 이전 실행들의 중앙값보다 `alert_below_typical_pct`(10%)
+  이상 쌀 때입니다. 같은 특가는 한 번만 보냅니다.
+- **이메일 요약**: 하루 한 번, 전체 스캔이 끝난 뒤 보냅니다. 현재 최저가와 역대 최저가·보통
+  가격, 가장 싼 요일, 예약 링크가 있는 상위 10개 날짜를 휴대폰과 PC 메일 앱에서 잘 보이는 표
+  형식으로 담고, 대화형 `report.html`을 첨부합니다(메일 앱은 스크립트를 지우므로 첨부 파일을
+  브라우저로 여세요).
+
+비밀 값은 `.env`에 넣습니다(`.env.example` 참고). 값이 없는 채널은 꺼진 상태로 둡니다. 설정
+확인은 다음 명령으로 두 채널을 한 번에 시험합니다.
+
+```bash
+docker compose run --rm app notify-test
+```
+
+전송에 실패하면 로그에 남기고 다음 실행 후 다시 시도합니다. 검색 실행은 실패하지 않습니다.
 
 ## 소스와 설계 메모
 

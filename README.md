@@ -41,6 +41,7 @@ One-off commands:
 docker compose run --rm app search --once     # one search run
 docker compose run --rm app status            # recent runs + cheapest dates
 docker compose run --rm app report            # rebuild report.html
+docker compose run --rm app notify-test       # send a test alert + digest (needs .env)
 docker compose logs -f app                    # follow the schedule
 ```
 
@@ -109,8 +110,28 @@ continues the same run and only performs the searches that are still open.
 | `offers` | every in-window offer: flights, airlines, times, price, currency, booking link, time seen |
 | `daily_best` | the winning bundle/combo per date, per run → price history |
 | `route_service` | "no direct flights" cache per source and direction |
+| `notifications` | which Telegram alerts and e-mail digests were sent, so none repeats |
 
 Nothing is overwritten, so price trends over time stay available.
+
+## Notifications (optional)
+
+- **Telegram alert** after a run whose cheapest price is a real deal: a new lowest price, or at
+  least `alert_below_typical_pct` (10%) below the median of earlier runs once there are
+  `alert_min_runs` (8) runs. Each deal is sent once, not every 3 hours.
+- **E-mail digest** once a day after the full scan: the cheapest price vs. lowest seen and
+  typical, the cheapest weekdays and the top 10 dates with booking links, in plain table HTML
+  that reads well in phone and desktop mail apps. The interactive `report.html` is attached
+  (mail apps strip its scripts, so open the attachment in a browser).
+
+Set the secrets in `.env` (see `.env.example`); a channel without them stays off. Then check
+both channels at once:
+
+```bash
+docker compose run --rm app notify-test
+```
+
+A failed send is logged and retried after the next run; it never fails the search.
 
 ## Sources and design notes
 
