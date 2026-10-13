@@ -38,6 +38,10 @@ def build_sources(settings: Settings) -> dict[str, Source]:
             from daytrip_flights.sources.google import GoogleSource
 
             sources[name] = GoogleSource(bundle_outbounds=settings.tiers.bundle_outbounds_per_date)
+        elif name == "naver":
+            from daytrip_flights.sources.naver import NaverSource
+
+            sources[name] = NaverSource()
         else:
             raise typer.BadParameter(f"unknown source {name!r}")
     return sources

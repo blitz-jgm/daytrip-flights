@@ -15,7 +15,7 @@ routes:
   #   out_window: "07:00-10:00"
   #   back_window: "18:00-21:00"
 
-sources: [google]   # add "naver" once its source is enabled
+sources: [google, naver]   # each source has its own request budget; one failing does not stop the other
 
 # Conservative request pacing, per source and per run.
 budget:
