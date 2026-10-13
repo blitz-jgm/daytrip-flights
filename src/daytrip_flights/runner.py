@@ -2,14 +2,21 @@
 
 Every task outcome is written to SQLite as soon as it finishes, so an interrupted run can be
 resumed and will only perform the searches that are still open.
+
+The one-way phase runs one worker thread per source, so Google and Naver are searched at the
+same time while each keeps its own Pacer (its own delays, retries and budget) and searches one
+task at a time. Per-source state (stopped, errors, empty, seen, dead) is keyed by source, so
+each worker only touches its own entries; database access is serialized with a lock.
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections import defaultdict
 from collections.abc import Callable
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -59,6 +66,7 @@ class Runner:
         self.empty: dict[tuple[str, str, str], int] = defaultdict(int)
         self.seen: set[tuple[str, str, str]] = set()
         self.dead: set[tuple[str, str, str]] = set()
+        self._db_lock = threading.Lock()
 
     # ---- public -----------------------------------------------------------------------------
 
@@ -83,8 +91,7 @@ class Runner:
             self.store.add_tasks(run_id, tasks)
             log.info("run %d: %s scan, %d one-way searches planned", run_id, mode, len(tasks))
 
-        for task in self.store.open_tasks(run_id, ("out", "back")):
-            self._execute(run_id, task)
+        self._run_parallel(run_id, self.store.open_tasks(run_id, ("out", "back")))
 
         if not self.store.has_tasks(run_id, "bundle"):
             bundle_sources = [s for s in active if self.sources[s].supports_bundle]
@@ -102,6 +109,33 @@ class Runner:
 
     # ---- internals --------------------------------------------------------------------------
 
+    def _run_parallel(self, run_id: int, tasks: list[SearchTask]) -> None:
+        """Run each source's tasks in order on its own thread; return once all are done."""
+        by_source: dict[str, list[SearchTask]] = defaultdict(list)
+        for task in tasks:
+            by_source[task.source].append(task)
+        if not by_source:
+            return
+        abort = threading.Event()
+
+        def work(queue: list[SearchTask]) -> None:
+            for task in queue:
+                if abort.is_set():
+                    return
+                self._execute(run_id, task)
+
+        with ThreadPoolExecutor(len(by_source), thread_name_prefix="search") as pool:
+            futures = [pool.submit(work, queue) for queue in by_source.values()]
+            try:
+                done, _ = wait(futures, return_when=FIRST_EXCEPTION)
+                for f in done:
+                    f.result()  # re-raise a crash (or Ctrl-C) from a worker
+            except BaseException:
+                # let the other workers finish their current search, then stop; the run stays
+                # open and is resumed next time
+                abort.set()
+                raise
+
     def _direction(self, task: SearchTask) -> tuple[str, str, str]:
         dest = self.routes[task.route].destination
         if task.kind == "back":
@@ -112,14 +146,14 @@ class Runner:
         source = self.sources.get(task.source)
         route = self.routes.get(task.route)
         if source is None or route is None:
-            self.store.finish_task(run_id, task, "skipped", error="source/route not configured")
+            self._finish_task(run_id, task, "skipped", error="source/route not configured")
             return
         if task.source in self.stopped:
-            self.store.finish_task(run_id, task, "skipped", error=self.stopped[task.source])
+            self._finish_task(run_id, task, "skipped", error=self.stopped[task.source])
             return
         key = self._direction(task)
         if key in self.dead:
-            self.store.finish_task(run_id, task, "no_service")
+            self._finish_task(run_id, task, "no_service")
             return
 
         pacer = self.pacers[task.source]
@@ -130,7 +164,7 @@ class Runner:
             self.stopped[task.source] = "blocked"
             self.errors[task.source] = str(exc)
             log.error("%s blocked; skipping it for the rest of this run: %s", task.source, exc)
-            self.store.finish_task(
+            self._finish_task(
                 run_id, task, "failed", error=str(exc), requests=pacer.requests - before
             )
             return
@@ -138,13 +172,13 @@ class Runner:
             self.stopped[task.source] = "budget"
             self.errors[task.source] = str(exc)
             log.warning("%s", exc)
-            self.store.finish_task(run_id, task, "skipped", error=str(exc))
+            self._finish_task(run_id, task, "skipped", error=str(exc))
             return
         except Exception as exc:
             log.warning(
                 "%s %s %s %s failed: %s", task.source, task.kind, task.origin, task.date, exc
             )
-            self.store.finish_task(
+            self._finish_task(
                 run_id,
                 task,
                 "failed",
@@ -154,19 +188,28 @@ class Runner:
             return
 
         kept = [o for o in result.offers if in_window(route, o)]
-        self.store.add_offers(run_id, kept)
-        self.store.finish_task(
-            run_id, task, "done", requests=pacer.requests - before, offers=len(kept)
-        )
+        with self._db_lock:
+            self.store.add_offers(run_id, kept)
+            self.store.finish_task(
+                run_id, task, "done", requests=pacer.requests - before, offers=len(kept)
+            )
         if task.kind != "bundle":
             self._track_service(key, bool(result.offers))
+
+    def _finish_task(self, run_id: int, task: SearchTask, status: str, **kw) -> None:
+        with self._db_lock:
+            self.store.finish_task(run_id, task, status, **kw)
+
+    def _set_service(self, source: str, a: str, b: str, has_direct: bool) -> None:
+        with self._db_lock:
+            self.store.set_service(source, a, b, has_direct, self.now())
 
     def _track_service(self, key: tuple[str, str, str], any_flights: bool) -> None:
         source, a, b = key
         if any_flights:
             if key not in self.seen:
                 self.seen.add(key)
-                self.store.set_service(source, a, b, True, self.now())
+                self._set_service(source, a, b, True)
             return
         self.empty[key] += 1
         if key not in self.seen and self.empty[key] >= self.settings.tiers.no_service_after_empty:
@@ -178,7 +221,7 @@ class Runner:
                 self.empty[key],
             )
             self.dead.add(key)
-            self.store.set_service(source, a, b, False, self.now())
+            self._set_service(source, a, b, False)
 
     def _snapshot(self, run_id: int) -> None:
         for route in self.settings.routes:
