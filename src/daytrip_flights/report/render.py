@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from statistics import median
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,28 @@ def _entry(store: Store, b: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _cheapest(store: Store, route: str, tz: ZoneInfo) -> dict[str, Any] | None:
+    runs = [
+        {
+            "t": _kst(r["started_at"], tz),
+            "total": r["total_krw"],
+            "date": r["date"].isoformat(),
+            "weekday": f"{r['date']:%a}",
+            "kind": r["kind"],
+        }
+        for r in store.cheapest_per_run(route)
+    ]
+    if not runs:
+        return None
+    totals = [r["total"] for r in runs]
+    return {
+        "runs": runs,
+        "latest": totals[-1],
+        "low": min(totals),
+        "median": round(median(totals)),
+    }
+
+
 def build_context(settings: Settings, store: Store, now: datetime | None = None) -> dict:
     tz = ZoneInfo(settings.timezone)
     now = now or datetime.now(UTC)
@@ -89,6 +112,7 @@ def build_context(settings: Settings, store: Store, now: datetime | None = None)
                 "days": days,
                 "top": sorted(days, key=lambda d: (d["total"], d["date"]))[:TOP_N],
                 "history": dict(history),
+                "cheapest": _cheapest(store, route.name, tz),
             }
         )
     runs = store.recent_runs(1)

@@ -82,3 +82,23 @@ def test_report_with_no_data(tmp_path):
     empty = Store(tmp_path / "empty.db")
     html = write_report(settings, empty, tmp_path / "r.html").read_text(encoding="utf-8")
     assert "No results yet" in html
+
+
+def test_context_tracks_cheapest_price_per_run(tmp_path):
+    settings, store = populated(tmp_path)
+    smoke = store.start_run("limited", T0 + timedelta(hours=4))  # 2-day smoke test: ignored
+    o, b = store.add_offers(
+        smoke,
+        [
+            oneway("out", "7C1401", "ICN", "FUK", "06:30", 50000),
+            oneway("back", "7C1408", "FUK", "ICN", "18:55", 50000),
+        ],
+    )
+    store.add_daily_best(smoke, "seoul-fukuoka", D, "combo", 100000, o, b, None)
+    store.finish_run(smoke, T0 + timedelta(hours=4, minutes=5), "done", {})
+    ctx = build_context(settings, store, now=T0 + timedelta(hours=7))
+    cheapest = ctx["routes"][0]["cheapest"]
+    assert [p["total"] for p in cheapest["runs"]] == [400000, 380000]
+    assert [p["date"] for p in cheapest["runs"]] == ["2026-11-10", "2026-11-10"]
+    assert cheapest["runs"][0]["t"] == "2026-11-10 03:00"
+    assert (cheapest["latest"], cheapest["low"], cheapest["median"]) == (380000, 380000, 390000)

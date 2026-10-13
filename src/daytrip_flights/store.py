@@ -328,6 +328,17 @@ class Store:
         )
         return [{**dict(r), "date": date.fromisoformat(r["date"])} for r in rows]
 
+    def cheapest_per_run(self, route: str) -> list[dict[str, Any]]:
+        """The cheapest date of every finished run (smoke tests excluded), oldest first."""
+        # SQLite takes the bare columns from the row that holds MIN()
+        rows = self.db.execute(
+            "SELECT r.started_at, b.date, b.kind, MIN(b.total_krw) AS total_krw FROM runs r "
+            "JOIN daily_best b ON b.run_id = r.id WHERE b.route=? AND r.mode != 'limited' "
+            "AND r.status IN ('done', 'partial') GROUP BY r.id ORDER BY r.started_at",
+            (route,),
+        )
+        return [{**dict(r), "date": date.fromisoformat(r["date"])} for r in rows]
+
     # ---- route service cache ----------------------------------------------------------------
 
     def set_service(
