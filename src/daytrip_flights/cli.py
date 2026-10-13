@@ -11,6 +11,7 @@ from typing import Annotated
 
 import typer
 
+from daytrip_flights import notify
 from daytrip_flights.config import Settings, load_config
 from daytrip_flights.runner import Runner
 from daytrip_flights.sources.base import Source
@@ -82,9 +83,15 @@ def search(
         settings.sources = [s for s in settings.sources if s in source] or list(source)
     with _run_lock(data_dir):
         store = Store(data_dir / "flights.db")
-        Runner(settings, store, build_sources(settings), days_ahead=days).run(resume=resume)
+        run_id = Runner(settings, store, build_sources(settings), days_ahead=days).run(
+            resume=resume
+        )
         if report:
             _write_report(settings, store, data_dir)
+        telegram, email = notify.channels_from_env(os.environ)
+        notify.notify_after_run(
+            settings, store, run_id, data_dir / "report.html", telegram=telegram, email=email
+        )
         store.close()
 
 
@@ -104,6 +111,34 @@ def report(config: ConfigOpt = Path("config.yaml"), data_dir: DataOpt = Path("da
     settings = load_config(config)
     store = Store(data_dir / "flights.db")
     _write_report(settings, store, data_dir)
+    store.close()
+
+
+@app.command("notify-test")
+def notify_test(
+    config: ConfigOpt = Path("config.yaml"),
+    data_dir: DataOpt = Path("data"),
+    telegram: Annotated[bool, typer.Option(help="Send a Telegram test message")] = True,
+    email: Annotated[bool, typer.Option(help="Send the e-mail digest now")] = True,
+) -> None:
+    """Check the .env settings: send a Telegram test message and today's digest right away."""
+    _setup_logging()
+    settings = load_config(config)
+    store = Store(data_dir / "flights.db")
+    tg, mail = notify.channels_from_env(os.environ)
+    ctx = notify.build_context(settings, store)
+    if telegram:
+        if tg is None:
+            typer.echo("Telegram: not configured (set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)")
+        else:
+            tg.send(notify.test_text(ctx))
+            typer.echo("Telegram: test message sent")
+    if email:
+        if mail is None:
+            typer.echo("E-mail: not configured (set SMTP_USER and SMTP_PASSWORD)")
+        else:
+            mail.send(notify.digest_message(ctx, data_dir / "report.html"))
+            typer.echo(f"E-mail: digest sent to {mail.to}")
     store.close()
 
 

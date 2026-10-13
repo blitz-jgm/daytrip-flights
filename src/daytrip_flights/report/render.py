@@ -66,6 +66,7 @@ def _entry(store: Store, b: dict[str, Any]) -> dict[str, Any]:
 def _cheapest(store: Store, route: str, tz: ZoneInfo) -> dict[str, Any] | None:
     runs = [
         {
+            "run_id": r["run_id"],
             "t": _kst(r["started_at"], tz),
             "total": r["total_krw"],
             "date": r["date"].isoformat(),

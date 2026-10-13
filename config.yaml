@@ -33,3 +33,11 @@ tiers:
   bundle_outbounds_per_date: 2   # and only for the N cheapest in-window outbound flights
   no_service_after_empty: 5      # N empty answers in a row => no direct service, skip
   no_service_cache_days: 7
+
+# Optional notifications; channels switch on via their secrets in .env (see .env.example).
+# Telegram alerts when a run's cheapest price is a new low, or this far below the median of
+# earlier runs (once there are enough runs). Each deal is sent once. The e-mail digest goes
+# out once a day, after the full scan.
+notify:
+  alert_below_typical_pct: 10
+  alert_min_runs: 8
